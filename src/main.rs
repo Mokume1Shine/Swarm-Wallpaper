@@ -7,12 +7,34 @@ use winit::{
     window::{Window, WindowId},
 };
 
+const FSQ_WGSL: &str = r#"
+struct VSOut { @builtin(position) pos: vec4<f32>, };
+@vertex
+fn vs_main(@builtin(vertex_index) vid: u32) -> VSOut {
+    // 3頂点で画面全体を覆う三角形
+    var p = array<vec2<f32>,3 >(
+        vec2<f32>( 0.0, -0.1),
+        vec2<f32>(-0.1,  0.1),
+        vec2<f32>( 0.1,  0.1)
+    );
+    var o: VSOut;
+    o.pos = vec4<f32>(p[vid], 0.0, 1.0);
+    return o;
+}
+
+@fragment
+fn fs_main() -> @location(0) vec4<f32> {
+    return vec4<f32>(0.1, 0.2, 0.3, 1.0);
+}
+"#;
+
 struct State {
     surface: wgpu::Surface<'static>,
     device: wgpu::Device,
     queue: wgpu::Queue,
     config: wgpu::SurfaceConfiguration,
     window: Arc<Window>,
+    pipeline: wgpu::RenderPipeline,
 }
 
 impl State {
@@ -58,12 +80,44 @@ impl State {
 
         surface.configure(&device, &config);
 
+        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("fsq"),
+            source: wgpu::ShaderSource::Wgsl(FSQ_WGSL.into()),
+        });
+
+        let pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+            label: Some("pipe"),
+            layout: None,
+            vertex: wgpu::VertexState {
+                module: &shader,
+                entry_point: Some("vs_main"),
+                buffers: &[],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            },
+            fragment: Some(wgpu::FragmentState {
+                module: &shader,
+                entry_point: Some("fs_main"),
+                targets: &[Some(wgpu::ColorTargetState {
+                    format,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                })],
+                compilation_options: wgpu::PipelineCompilationOptions::default(),
+            }),
+            primitive: wgpu::PrimitiveState::default(),
+            depth_stencil: None,
+            multisample: wgpu::MultisampleState::default(),
+            multiview: None,
+            cache: None,
+        });
+
         Self {
             surface,
             device,
             queue,
             config,
             window: window.into(),
+            pipeline,
         }
     }
 
@@ -82,21 +136,23 @@ impl State {
 
         let mut encoder = self.device.create_command_encoder(&Default::default());
         {
-            let _rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            let mut rpass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: None,
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
                     view: &view,
                     depth_slice: None,
                     resolve_target: None,
                     ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::GREEN),
+                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
                         store: wgpu::StoreOp::Store,
                     },
                 })],
+                depth_stencil_attachment: None,
                 timestamp_writes: None,
                 occlusion_query_set: None,
-                depth_stencil_attachment: None,
             });
+            rpass.set_pipeline(&self.pipeline);
+            rpass.draw(0..3, 0..1);
         }
         self.queue.submit(Some(encoder.finish()));
         output.present();
