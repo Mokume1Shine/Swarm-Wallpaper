@@ -1,4 +1,5 @@
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use wgpu::util::DeviceExt;
 use winit::{
@@ -273,6 +274,8 @@ impl State {
 struct App {
     state: Option<State>,
     animating: bool,
+    fps_frames: u32,
+    fps_last: Option<Instant>,
 }
 
 impl ApplicationHandler for App {
@@ -287,6 +290,9 @@ impl ApplicationHandler for App {
 
         self.state = Some(state);
         self.animating = true;
+        self.state.as_ref().unwrap().window.request_redraw();
+        self.fps_frames = 0;
+        self.fps_last = Some(Instant::now());
         self.state.as_ref().unwrap().window.request_redraw();
     }
 
@@ -312,6 +318,17 @@ impl ApplicationHandler for App {
                 if let Some(s) = self.state.as_mut() {
                     match s.render() {
                         Ok(()) => {
+                            self.fps_frames += 1;
+                            if let Some(t0) = self.fps_last {
+                                let dt = t0.elapsed();
+                                if dt >= Duration::from_secs(1) {
+                                    let fps = (self.fps_frames as f64) / (dt.as_secs_f64());
+                                    s.window
+                                        .set_title(&format!("Swarm Wallpaper  |  {:.1} FPS", fps));
+                                    self.fps_frames = 0;
+                                    self.fps_last = Some(Instant::now());
+                                }
+                            }
                             if self.animating {
                                 s.window.request_redraw();
                             }
